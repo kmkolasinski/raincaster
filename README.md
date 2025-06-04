@@ -8,6 +8,7 @@ https://github.com/kivymd/KivyMD/wiki/Components-DropDownMenu
 ```bash
 adb devices
 buildozer appclean
+buildozer -v android clean
 buildozer android debug deploy run logcat
 buildozer android debug deploy run
 BUILDOZER_ALLOW_ORG_TEST_DOMAIN=1 buildozer android release deploy run

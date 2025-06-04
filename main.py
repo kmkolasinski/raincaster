@@ -1,47 +1,31 @@
-import time
-import webbrowser
+from io import BytesIO
 
 import kivy
-from kivy.clock import mainthread, Clock
-from kivy.metrics import dp
-from kivy.core.window import Window
-
-
-from kivy.uix.boxlayout import BoxLayout
-from kivy.uix.screenmanager import ScreenManager, Screen
-from kivymd.app import MDApp
-from kivymd.uix import dialog as md_dialog
-from kivymd.uix import list as md_list
-from kivymd.uix import textfield
-from kivymd.uix import appbar
-from kivymd.uix.boxlayout import MDBoxLayout
-from kivymd.uix import button as md_button
-from kivymd.uix.card import MDCard
-from kivymd.uix.label import MDLabel
-from kivymd.uix.list import MDList
-from kivymd.uix.scrollview import ScrollView, MDScrollView
-from kivymd.uix import selectioncontrol
-from kivymd.uix.widget import Widget
-from kivymd.uix.divider import MDDivider
-from kivymd.uix import progressindicator
-from kivymd.uix import segmentedbutton as md_segmentedbutton
-from raincaster import core
-from kivy.uix.image import Image
-from kivy.properties import NumericProperty, ListProperty, StringProperty
-from kivymd.uix.slider import MDSlider
-from kivy.graphics import Color, Rectangle
-from PIL import Image as PILImage
+from kivy.clock import mainthread
 from kivy.core.image import Image as CoreImage
-from io import BytesIO
+from kivy.core.window import Window
+from kivy.graphics import Color, Ellipse, Line, Rectangle
+from kivy.metrics import dp
+from kivy.properties import (
+    BooleanProperty,
+    ListProperty,
+    NumericProperty,
+    ObjectProperty,
+    StringProperty,
+)
+from kivy.uix.screenmanager import Screen, ScreenManager
 from kivy.uix.widget import Widget
-from kivy.uix.image import Image
-from kivy.graphics import Color, Ellipse, Rectangle
+from kivymd.app import MDApp
+from kivymd.uix import button as md_button
+from kivymd.uix.boxlayout import MDBoxLayout
+from kivymd.uix.divider import MDDivider
+from kivymd.uix.label import MDLabel
+from kivymd.uix.slider import MDSlider
 from kivymd.uix.textfield import MDTextField
-from kivy.properties import ObjectProperty
-from kivy.uix.widget import Widget
-from kivy.properties import ObjectProperty, BooleanProperty
-from kivy.graphics import Rectangle, Color, Ellipse, Line
+from kivymd.uix.widget import Widget
+from PIL import Image as PILImage
 
+from raincaster import core
 
 if kivy.platform == "linux":
     Window.size = (500, 900)  # width, height in pixels
@@ -107,9 +91,7 @@ def pil_to_texture(pil_image):
     # Composite alpha channel over white
     if pil_image.mode in ("RGBA", "LA"):
         background = PILImage.new("RGBA", pil_image.size, (255, 255, 255, 255))
-        background.paste(
-            pil_image, mask=pil_image.split()[-1]
-        )  # Use alpha channel as mask
+        background.paste(pil_image, mask=pil_image.split()[-1])  # Use alpha channel as mask
         pil_image = background.convert("RGB")
     else:
         pil_image = pil_image.convert("RGB")
@@ -130,6 +112,18 @@ class RadarScreen(Screen):
         super().__init__(name="radar", **kwargs)
 
         layout = MDBoxLayout(orientation="vertical", padding=[dp(8)], spacing=dp(8))
+
+        self.location_button = md_button.MDButton(
+            md_button.MDButtonIcon(icon="crosshairs-gps"),
+            on_release=self.on_location_button,
+            theme_width="Custom",
+            size_hint_x=None,
+            size_hint_y=None,
+            width=dp(48),
+            height=dp(48),
+            pos_hint={"center_x": 0.5, "center_y": 0.5},
+            radius=[dp(0)],
+        )
 
         # Input fields for lat, lon, utc_offset, color
         self.lat_input = MDTextField(
@@ -166,6 +160,7 @@ class RadarScreen(Screen):
         input_box = MDBoxLayout(
             orientation="horizontal", spacing=dp(8), size_hint_y=None, height=dp(48)
         )
+        input_box.add_widget(self.location_button)
         input_box.add_widget(self.lat_input)
         input_box.add_widget(self.lon_input)
         input_box.add_widget(self.utc_offset_input)
@@ -215,6 +210,126 @@ class RadarScreen(Screen):
         self.add_widget(layout)
         self.fetch_radar_data()  # Initial fetch
 
+    def on_location_button(self, instance):
+        # Try to get current location using plyer (cross-platform)
+        try:
+            # https://github.com/kivy/plyer/blob/master/plyer/platforms/android/gps.py
+            # https://github.com/kivy/plyer/blob/master/plyer/facades/gps.py
+            # https://github.com/kivy/plyer/pull/665/files/1f84fcd24a44877522a8e2edf885c708e8158466#diff-7b226d7966dc78fa6d19906d5f3998770aeae657b2cdbcd34533f2c14b5d24da
+            from jnius import PythonJavaClass, autoclass, java_method
+            from plyer.facades import GPS
+            from plyer.platforms.android import activity
+
+            # from plyer import gps
+            from plyer.utils import platform
+
+            Looper = autoclass("android.os.Looper")
+            LocationManager = autoclass("android.location.LocationManager")
+            Context = autoclass("android.content.Context")
+
+            if platform == "android":
+                Location = autoclass("android.location.Location")
+
+            class MyLocationListener(PythonJavaClass):
+                __javainterfaces__ = ["android/location/LocationListener"]
+                __javacontext__ = "app"
+
+                def __init__(self, root: "AndroidGPS"):
+                    self.root = root
+                    super().__init__()
+
+                # old API (<=30)
+                @java_method("(Landroid/location/Location;)V")
+                def onLocationChanged(self, location):
+                    self._dispatch(location)
+
+                # new API (>=31)
+                @java_method("(Ljava/util/List;)V")
+                def onLocationChanged(self, locations):
+                    print(f">> onLocationChanged: {locations}")
+                    if locations and locations.size() > 0:
+                        self._dispatch(locations.get(0))
+
+                def _dispatch(self, loc):
+                    print(f">> _dispatch: {loc.getLatitude()}, {loc.getLongitude()}")
+                    self.root.on_location(lat=loc.getLatitude(), lon=loc.getLongitude())
+
+                @java_method("(Ljava/lang/String;)V")
+                def onProviderEnabled(self, provider):
+                    pass
+
+                @java_method("(Ljava/lang/String;)V")
+                def onProviderDisabled(self, provider):
+                    pass
+
+                @java_method("(Ljava/lang/String;ILandroid/os/Bundle;)V")
+                def onStatusChanged(self, provider, status, extras):
+                    if self.root.on_status:
+                        s_status = "unknown"
+                        if status == 0x00:
+                            s_status = "out-of-service"
+                        elif status == 0x01:
+                            s_status = "temporarily-unavailable"
+                        elif status == 0x02:
+                            s_status = "available"
+                        self.root.on_status("provider-status", f"{provider}: {s_status}")
+
+        except ImportError:
+            # plyer is not installed
+            self.lat_input.text = ""
+            self.lon_input.text = ""
+            self.time_label.text = "plyer not installed"
+            return
+
+        @mainthread
+        def on_location(**kwargs):
+            lat = kwargs.get("lat")
+            lon = kwargs.get("lon")
+            if lat is not None and lon is not None:
+                self.lat_input.text = str(lat)
+                self.lon_input.text = str(lon)
+                self.time_label.text = "Location updated"
+            else:
+                self.time_label.text = "Location unavailable"
+            # Stop GPS after getting one fix
+            gps.stop()
+
+        def on_status(status_type, status):
+            if status_type == "provider-enabled":
+                self.time_label.text = "Getting location..."
+            elif status_type == "provider-disabled":
+                self.time_label.text = "Location provider disabled"
+
+        class AndroidGPS(GPS):
+            def _configure(self):
+                if not hasattr(self, "_location_manager"):
+                    self._location_manager = activity.getSystemService(Context.LOCATION_SERVICE)
+                    self._location_listener = MyLocationListener(self)
+
+            def _start(self, **kwargs):
+                min_time = kwargs.get("minTime")
+                min_distance = kwargs.get("minDistance")
+                providers = self._location_manager.getProviders(False).toArray()
+                for provider in providers:
+                    self._location_manager.requestLocationUpdates(
+                        provider,
+                        min_time,  # minTime, in milliseconds
+                        min_distance,  # minDistance, in meters
+                        self._location_listener,
+                        Looper.getMainLooper(),
+                    )
+
+            def _stop(self):
+                self._location_manager.removeUpdates(self._location_listener)
+
+        gps = AndroidGPS()
+        gps.configure(on_location=on_location, on_status=on_status)
+        try:
+            gps.start()
+            self.time_label.text = "Requesting location..."
+        except Exception as e:
+            self.time_label.text = f"GPS error: {e}"
+
     def on_fetch_button(self, instance):
         self.fetch_radar_data()
 
@@ -247,16 +362,17 @@ class RadarScreen(Screen):
 
 
 class RaincasterApp(MDApp):
-
     def build(self):
         if kivy.platform == "android":
-            from android.permissions import request_permissions, Permission  # type: ignore
+            from android.permissions import Permission, request_permissions  # type: ignore
 
-            request_permissions([
-                Permission.INTERNET,
-                Permission.ACCESS_COARSE_LOCATION,
-                Permission.ACCESS_FINE_LOCATION,
-            ])
+            request_permissions(
+                [
+                    Permission.INTERNET,
+                    Permission.ACCESS_COARSE_LOCATION,
+                    Permission.ACCESS_FINE_LOCATION,
+                ]
+            )
 
         self.theme_cls.theme_style = "Dark"
 

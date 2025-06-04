@@ -3,14 +3,15 @@ Rain Viewer Weather Maps API https://www.rainviewer.com/api/weather-maps-api.htm
 
 """
 
-import requests
 import dataclasses
+import datetime
 import functools
 from concurrent import futures
-from PIL import Image
 from io import BytesIO
-import datetime
+
 import numpy as np
+import requests
+from PIL import Image
 
 RAIN_VIEWER_API_URL = "https://api.rainviewer.com/public/weather-maps.json"
 
@@ -49,7 +50,7 @@ class RadarFrame:
         Returns:
             dt: datetime object representing the time of the frame in the shifted timezone.
         """
-        dt_utc = datetime.datetime.fromtimestamp(self.time, tz=datetime.timezone.utc)
+        dt_utc = datetime.datetime.fromtimestamp(self.time, tz=datetime.UTC)
         if tz_shift == 0:
             return dt_utc
         return dt_utc.astimezone(datetime.timezone(datetime.timedelta(hours=tz_shift)))
@@ -97,9 +98,7 @@ class WeatherMaps:
         )
 
         satellite = Satellite(
-            infrared=[
-                RadarFrame(**frame) for frame in satellite_data.get("infrared", [])
-            ]
+            infrared=[RadarFrame(**frame) for frame in satellite_data.get("infrared", [])]
         )
 
         return cls(
@@ -131,9 +130,7 @@ class WeatherMaps:
         size: int = 512,
         color: int = 0,
         options: str = "1_0",
-    ) -> tuple[
-        list[tuple[RadarFrame, Image.Image]], list[tuple[RadarFrame, Image.Image]]
-    ]:
+    ) -> tuple[list[tuple[RadarFrame, Image.Image]], list[tuple[RadarFrame, Image.Image]]]:
         """
         Fetches all radar maps from the past frames.
 
@@ -166,8 +163,8 @@ class WeatherMaps:
             past_images = list(executor.map(_fetch_fn, self.radar.past))
             nowcast_images = list(executor.map(_fetch_fn, self.radar.nowcast))
 
-        past_data = list(zip(self.radar.past, past_images))
-        nowcast_data = list(zip(self.radar.nowcast, nowcast_images))
+        past_data = list(zip(self.radar.past, past_images, strict=False))
+        nowcast_data = list(zip(self.radar.nowcast, nowcast_images, strict=False))
         return past_data, nowcast_data
 
 
@@ -214,7 +211,7 @@ def dbz_to_rain_rate(dbz: int) -> tuple[str, str]:
     Given a dBZ value, return the corresponding rain rate
     in in/hr and mm/hr as strings from the category table.
     """
-    for thresh, inhr, mmhr in zip(dbz_thresholds, rain_rate_in_hr, rain_rate_mm_hr):
+    for thresh, inhr, mmhr in zip(dbz_thresholds, rain_rate_in_hr, rain_rate_mm_hr, strict=False):
         if dbz >= thresh:
             return inhr, mmhr
     # If below lowest threshold, return lowest rain rates
