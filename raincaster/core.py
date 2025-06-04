@@ -10,8 +10,26 @@ from concurrent import futures
 from PIL import Image
 from io import BytesIO
 import datetime
+import numpy as np
 
 RAIN_VIEWER_API_URL = "https://api.rainviewer.com/public/weather-maps.json"
+
+# source https://www.noaa.gov/jetstream/reflectivity
+# dBZ values must be checked *downward* (start high), to match the correct rain rate
+dbz_thresholds = [65, 60, 55, 50, 45, 40, 35, 30, 25, 20]
+rain_rate_in_hr = [
+    "16+",
+    "8.00",
+    "4.00",
+    "1.90",
+    "0.92",
+    "0.45",
+    "0.22",
+    "0.10",
+    "0.05",
+    "0.01",
+]
+rain_rate_mm_hr = ["420+", "205", "100", "47", "24", "12", "6", "3", "1", "Trace"]
 
 
 @dataclasses.dataclass
@@ -19,7 +37,6 @@ class RadarFrame:
     time: int
     path: str
 
-    @property
     def time_datetime(self, tz_shift: int = 0) -> datetime.datetime:
         """
         Map frame generation data in UNIX timestamp format (UTC).
@@ -36,6 +53,18 @@ class RadarFrame:
         if tz_shift == 0:
             return dt_utc
         return dt_utc.astimezone(datetime.timezone(datetime.timedelta(hours=tz_shift)))
+
+    def time_str(self, tz_shift: int = 0) -> str:
+        """
+        Returns the time of the frame as a formatted string in the shifted timezone.
+
+        Parameters:
+            tz_shift (int): Timezone shift in hours from UTC (e.g., 2 for UTC+2).
+
+        Returns:
+            str: Formatted time string.
+        """
+        return self.time_datetime(tz_shift).strftime("%H:%M:%S")
 
 
 @dataclasses.dataclass
@@ -100,9 +129,11 @@ class WeatherMaps:
         lon: float = 19.938,
         zoom: int = 7,
         size: int = 512,
-        color: int = 2,
+        color: int = 0,
         options: str = "1_0",
-    ) -> tuple[list[tuple[RadarFrame, Image.Image]], list[tuple[RadarFrame, Image.Image]]]:
+    ) -> tuple[
+        list[tuple[RadarFrame, Image.Image]], list[tuple[RadarFrame, Image.Image]]
+    ]:
         """
         Fetches all radar maps from the past frames.
 
@@ -176,3 +207,72 @@ def fetch_radar_map_raw(
         return Image.open(BytesIO(response.content))
     else:
         raise ValueError(f"Failed to download the radar tile: {response.status_code}")
+
+
+def dbz_to_rain_rate(dbz: int) -> tuple[str, str]:
+    """
+    Given a dBZ value, return the corresponding rain rate
+    in in/hr and mm/hr as strings from the category table.
+    """
+    for thresh, inhr, mmhr in zip(dbz_thresholds, rain_rate_in_hr, rain_rate_mm_hr):
+        if dbz >= thresh:
+            return inhr, mmhr
+    # If below lowest threshold, return lowest rain rates
+    return rain_rate_in_hr[-1], rain_rate_mm_hr[-1]
+
+
+def cross_section(image, angle: float, channel: int = 0) -> list[float]:
+    """
+    Sample pixels along a line at the given angle (in degrees) through the center of the image.
+    Does not use interpolation, just nearest-pixel sampling.
+
+    Args:
+        image: np.ndarray (H, W, C) or (H, W)
+        angle: float (degrees)
+        channel: int, for color images
+
+    Returns:
+        List of pixel values along the line (center included)
+    """
+    img = np.asarray(image)
+    if img.ndim == 3:
+        img = img[..., channel]
+    H, W = img.shape
+    cy, cx = (H) / 2, (W) / 2  # Image center
+
+    angle = np.deg2rad(angle)
+    dx = np.cos(angle)
+    dy = np.sin(angle)
+    # print(f"Cross-section angle: {angle} radians, direction: ({dx}, {dy})")
+
+    # Maximum number of steps in either direction from the center
+    max_dist = int(np.ceil(np.sqrt(H**2 + W**2) / 2))
+
+    coords = []
+    # Forward direction
+    for n in range(max_dist):
+        x = cx + n * dx
+        y = cy + n * dy
+        ix, iy = int(round(x)), int(round(y))
+        # print(n, x, y, ix, iy)
+        if 0 <= ix < W and 0 <= iy < H:
+            coords.append((iy, ix))
+        else:
+            break
+    # Backward direction
+    for n in range(1, max_dist):  # start from 1 to avoid duplicating the center
+        x = cx - n * dx
+        y = cy - n * dy
+        ix, iy = int(round(x)), int(round(y))
+        if 0 <= ix < W and 0 <= iy < H:
+            coords.insert(0, (iy, ix))
+        else:
+            break
+
+    # Sort points along the line (by their n, which is their projection along direction)
+    coords = list(coords)
+    # To sort, project to direction vector (dx,dy) from center
+    # coords.sort(key=lambda pt: (pt[0] - cy) * dy + (pt[1] - cx) * dx)
+    # print(coords)
+    values = [img[pt[0], pt[1]] for pt in coords]
+    return np.array(values)
