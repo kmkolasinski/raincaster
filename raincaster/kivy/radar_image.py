@@ -1,14 +1,13 @@
+from io import BytesIO
+
+from kivy.core.image import Image as CoreImage
 from kivy.graphics import Color, Ellipse, Line, Rectangle
 from kivy.properties import (
     BooleanProperty,
     ObjectProperty,
 )
-
-from io import BytesIO
-
-from kivy.core.image import Image as CoreImage
-from PIL import Image as PILImage
 from kivymd.uix.widget import Widget as MDWidget
+from PIL import Image as PILImage
 
 
 class RadarImage(MDWidget):
@@ -24,6 +23,7 @@ class RadarImage(MDWidget):
 
         self.texture = texture
         self.keep_ratio = keep_ratio
+        self.radar_tile_size_km = None
         self.bind(
             pos=self.update_canvas,
             size=self.update_canvas,
@@ -36,6 +36,22 @@ class RadarImage(MDWidget):
         Set the image to be displayed. The image should be a PIL Image.
         """
         self.texture = pil_to_texture(image)
+
+    def set_radar_tile_size_km(self, size_km: float):
+        """
+        Set the radar tile size in kilometers.
+        This is used to calculate the size of the radar tile in pixels.
+        """
+        self.radar_tile_size_km = size_km
+
+    def get_km_circle_radius(self, radius_km: float) -> float:
+        """
+        Calculate the radius of a circle (in pixels) for a given km radius.
+        This is based on the radar tile size in kilometers.
+        """
+        if self.radar_tile_size_km is None:
+            return 0
+        return (radius_km / self.radar_tile_size_km) * min(self.width, self.height)
 
     def update_canvas(self, *args):
         self.canvas.clear()
@@ -57,19 +73,20 @@ class RadarImage(MDWidget):
                 else:
                     Rectangle(texture=self.texture, pos=self.pos, size=self.size)
 
+            # Draw 25 km and 50 km circles
             Color(0, 0, 0, 0.7)
-            d = min(self.width, self.height) / 5
-            d = min(self.width, self.height) / 5
-            Line(
-                ellipse=(
-                    self.center_x - d / 2,  # x
-                    self.center_y - d / 2,  # y
-                    d,  # width
-                    d,  # height
-                ),
-                width=2,
-            )
-            d = d / 10
+            for km in (25, 50):
+                d_km = self.get_km_circle_radius(km)
+                Line(
+                    ellipse=(
+                        self.center_x - d_km,
+                        self.center_y - d_km,
+                        2 * d_km,
+                        2 * d_km,
+                    ),
+                    width=1.5,
+                )
+            d = 10
             Ellipse(
                 pos=(self.center_x - d / 2, self.center_y - d / 2),
                 size=(d, d),

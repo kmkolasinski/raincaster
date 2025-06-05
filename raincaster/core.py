@@ -6,6 +6,7 @@ Rain Viewer Weather Maps API https://www.rainviewer.com/api/weather-maps-api.htm
 import dataclasses
 import datetime
 import functools
+import math
 from concurrent import futures
 from io import BytesIO
 
@@ -273,3 +274,19 @@ def cross_section(image, angle: float, channel: int = 0) -> list[float]:
     # print(coords)
     values = [img[pt[0], pt[1]] for pt in coords]
     return np.array(values)
+
+
+def tile_size_km(zoom: int, latitude: float = 0.0) -> float:
+    """
+    Returns the approximate width (and height) in km of a map tile at a given zoom level and latitude.
+    By default, calculation is for the equator.
+    """
+    # Earth's circumference in kilometers (at the equator)
+    earth_circum_km = 40075.0
+    # Number of tiles per axis at this zoom
+    n_tiles = 2**zoom
+    # Tile size at equator
+    tile_km = earth_circum_km / n_tiles
+    # Adjust for latitude
+    tile_km_lat = tile_km * math.cos(math.radians(latitude))
+    return tile_km_lat

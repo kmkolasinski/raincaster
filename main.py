@@ -27,6 +27,7 @@ if kivy.platform == "linux":
 
 class RadarScreen(Screen):
     current_frame = NumericProperty(0)
+    zoom_level = NumericProperty(7)
     past_images = ListProperty()
     past_times = ListProperty()
     current_time_str = StringProperty("")
@@ -53,7 +54,7 @@ class RadarScreen(Screen):
         self.lat_input = textfield.MDTextField(
             textfield.MDTextFieldHintText(text="Latitude"),
             mode="filled",
-            text="51.27373",
+            text="50.07317",
             input_filter="float",
             size_hint_y=None,
             height=dp(48),
@@ -61,13 +62,12 @@ class RadarScreen(Screen):
         self.lon_input = textfield.MDTextField(
             textfield.MDTextFieldHintText(text="Longitude"),
             mode="filled",
-            text="15.93661",
+            text="19.8948",
             input_filter="float",
             size_hint_y=None,
             height=dp(48),
         )
         self.utc_offset_input = textfield.MDTextField(
-            # textfield.MDTextFieldHintText(text="UTC"),
             mode="filled",
             text="2",
             input_filter="int",
@@ -96,12 +96,14 @@ class RadarScreen(Screen):
 
         # Fetch button
         self.fetch_button = md_button.MDButton(
-            md_button.MDButtonText(
-                text="Fetch Radar Data", pos_hint={"center_x": 0.5, "center_y": 0.5}
-            ),
+            md_button.MDButtonIcon(icon="reload"),
             on_release=self.on_fetch_button,
             theme_width="Custom",
-            size_hint_x=1.0,
+            size_hint_x=None,
+            size_hint_y=None,
+            width=dp(48),
+            height=dp(48),
+            radius=[dp(0)],
         )
 
         self.zoom_in_button = md_button.MDButton(
@@ -145,12 +147,14 @@ class RadarScreen(Screen):
             height=dp(48),
         )
 
+        buttons_row.add_widget(Widget())  # left spacer
         buttons_row.add_widget(self.zoom_in_button)
+        buttons_row.add_widget(self.fetch_button)
         buttons_row.add_widget(self.zoom_out_button)
+        buttons_row.add_widget(Widget())  # right spacer
 
         layout.add_widget(self.image_widget)
         layout.add_widget(buttons_row)
-        layout.add_widget(self.fetch_button)
         layout.add_widget(self.time_label)
         # Add a divider
         layout.add_widget(MDDivider())
@@ -217,34 +221,28 @@ class RadarScreen(Screen):
 
     def on_zoom_in(self, instance):
         # Increase radar image zoom (decrease size parameter)
-        if hasattr(self, "zoom_level"):
-            self.zoom_level = max(64, self.zoom_level // 2)
-        else:
-            self.zoom_level = 256
-        self.fetch_radar_data(zoom_override=True)
+        self.zoom_level += 1
+        if self.zoom_level > 8:
+            self.zoom_level = 8
+        self.fetch_radar_data()
 
     def on_zoom_out(self, instance):
         # Decrease radar image zoom (increase size parameter)
-        if hasattr(self, "zoom_level"):
-            self.zoom_level = min(1024, self.zoom_level * 2)
-        else:
-            self.zoom_level = 1024
-        self.fetch_radar_data(zoom_override=True)
+        self.zoom_level -= 1
+        if self.zoom_level < 5:
+            self.zoom_level = 5
+        self.fetch_radar_data()
 
-    def fetch_radar_data(self, zoom_override=False):
+    def fetch_radar_data(self):
         # Get parameters from input fields
         lat = float(self.lat_input.text)
         lon = float(self.lon_input.text)
         self.utc_offset = int(self.utc_offset_input.text)
         color = int(self.color_input.text)
-        # Use zoom_level if set, otherwise default to 512
-        size = getattr(self, "zoom_level", 512)
-        if not zoom_override:
-            self.zoom_level = size  # reset zoom if not zooming
 
         weather_map = core.fetch_weather_maps()
         past_data, future_data = weather_map.fetch_all_radar_maps(
-            lat=lat, lon=lon, size=size, color=color
+            lat=lat, lon=lon, zoom=self.zoom_level, color=color
         )
         self.frame_data = past_data + future_data
         self.update_ui()
@@ -256,7 +254,12 @@ class RadarScreen(Screen):
     def on_slider_value(self, instance, value):
         idx = int(value)
         new_time_str = self.frame_data[idx][0].time_str(self.utc_offset)
+
+        self.image_widget.set_radar_tile_size_km(
+            core.tile_size_km(self.zoom_level, float(self.lat_input.text))
+        )
         self.image_widget.set_image(self.frame_data[idx][1])
+
         self.time_label.text = new_time_str
         self.current_frame = idx
         self.current_time_str = new_time_str
