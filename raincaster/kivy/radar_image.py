@@ -1,6 +1,7 @@
 from io import BytesIO
 
 from kivy.core.image import Image as CoreImage
+from kivy.core.text import Label as CoreLabel
 from kivy.graphics import Color, Ellipse, Line, Rectangle
 from kivy.properties import (
     BooleanProperty,
@@ -73,8 +74,9 @@ class RadarImage(MDWidget):
                 else:
                     Rectangle(texture=self.texture, pos=self.pos, size=self.size)
 
-            # Draw 25 km and 50 km circles
-            Color(0, 0, 0, 0.7)
+            # Draw 25 km and 50 km circles with labels
+            # Use a light blue color for better visibility
+            Color(0.0, 0.1, 0.2, 0.7)
             for km in (25, 50):
                 d_km = self.get_km_circle_radius(km)
                 Line(
@@ -85,6 +87,17 @@ class RadarImage(MDWidget):
                         2 * d_km,
                     ),
                     width=1.5,
+                )
+                # Draw label for each circle
+                label = CoreLabel(text=f"{km} km", font_size=14, color=(0.0, 0.1, 0.2, 1))
+                label.refresh()
+                # Place label at the top of the circle
+                label_x = self.center_x - label.texture.size[0] / 2
+                label_y = self.center_y + d_km - label.texture.size[1] - 2
+                Rectangle(
+                    texture=label.texture,
+                    pos=(label_x, label_y),
+                    size=label.texture.size,
                 )
             d = 10
             Ellipse(

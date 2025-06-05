@@ -260,7 +260,17 @@ class RadarScreen(Screen):
         )
         self.image_widget.set_image(self.frame_data[idx][1])
 
-        self.time_label.text = new_time_str
+        # Determine if the frame is in the past or future
+        import datetime
+
+        frame_time = self.frame_data[idx][0].time_datetime(self.utc_offset)
+        now = datetime.datetime.now(frame_time.tzinfo)
+        if frame_time > now:
+            label_str = f"+{new_time_str}"
+        else:
+            label_str = f"-{new_time_str}"
+
+        self.time_label.text = label_str
         self.current_frame = idx
         self.current_time_str = new_time_str
 
