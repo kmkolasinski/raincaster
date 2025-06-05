@@ -89,7 +89,7 @@ class RadarImage(MDWidget):
                     width=1.5,
                 )
                 # Draw label for each circle
-                label = CoreLabel(text=f"{km} km", font_size=14, color=(0.0, 0.1, 0.2, 1))
+                label = CoreLabel(text=f"{km} km", font_size=20, color=(0.0, 0.1, 0.2, 1))
                 label.refresh()
                 # Place label at the top of the circle
                 label_x = self.center_x - label.texture.size[0] / 2

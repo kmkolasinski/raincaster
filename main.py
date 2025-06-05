@@ -12,7 +12,6 @@ from kivymd.app import MDApp
 from kivymd.uix import button as md_button
 from kivymd.uix import slider, textfield
 from kivymd.uix.boxlayout import MDBoxLayout
-from kivymd.uix.divider import MDDivider
 from kivymd.uix.label import MDLabel
 from kivymd.uix.widget import Widget
 
@@ -23,6 +22,14 @@ if kivy.platform == "linux":
     Window.size = (500, 900)  # width, height in pixels
     Window.minimum_width = 400
     Window.minimum_height = 600
+
+
+def get_local_utc_offset_hours():
+    import datetime
+
+    now = datetime.datetime.now(datetime.UTC).astimezone()
+    offset = now.utcoffset()
+    return int(offset.total_seconds() // 3600)
 
 
 class RadarScreen(Screen):
@@ -67,16 +74,7 @@ class RadarScreen(Screen):
             size_hint_y=None,
             height=dp(48),
         )
-        self.utc_offset_input = textfield.MDTextField(
-            mode="filled",
-            text="2",
-            input_filter="int",
-            size_hint_x=0.5,
-            size_hint_y=None,
-            height=dp(48),
-        )
         self.color_input = textfield.MDTextField(
-            hint_text="Color Number",
             text="8",
             input_filter="int",
             size_hint_y=None,
@@ -90,8 +88,7 @@ class RadarScreen(Screen):
         input_box.add_widget(self.location_button)
         input_box.add_widget(self.lat_input)
         input_box.add_widget(self.lon_input)
-        input_box.add_widget(self.utc_offset_input)
-        # # input_box.add_widget(self.color_input)
+        input_box.add_widget(self.color_input)
         layout.add_widget(input_box)
 
         # Fetch button
@@ -156,9 +153,6 @@ class RadarScreen(Screen):
         layout.add_widget(self.image_widget)
         layout.add_widget(buttons_row)
         layout.add_widget(self.time_label)
-        # Add a divider
-        layout.add_widget(MDDivider())
-        layout.add_widget(Widget())
 
         # Slider below image
         self.slider = slider.MDSlider(
@@ -173,6 +167,7 @@ class RadarScreen(Screen):
         )
         self.slider.bind(value=self.on_slider_value)
         layout.add_widget(self.slider)
+        layout.add_widget(Widget())
 
         self.add_widget(layout)
         self.fetch_radar_data()
@@ -199,7 +194,6 @@ class RadarScreen(Screen):
             else:
                 self.time_label.text = "Location unavailable"
 
-            self.fetch_radar_data()
             gps.stop()
 
         def on_status(status_type, status):
@@ -237,7 +231,8 @@ class RadarScreen(Screen):
         # Get parameters from input fields
         lat = float(self.lat_input.text)
         lon = float(self.lon_input.text)
-        self.utc_offset = int(self.utc_offset_input.text)
+        self.utc_offset = get_local_utc_offset_hours()
+
         color = int(self.color_input.text)
 
         weather_map = core.fetch_weather_maps()

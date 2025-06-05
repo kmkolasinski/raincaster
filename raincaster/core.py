@@ -273,7 +273,7 @@ def cross_section(image, angle: float, channel: int = 0) -> list[float]:
     # coords.sort(key=lambda pt: (pt[0] - cy) * dy + (pt[1] - cx) * dx)
     # print(coords)
     values = [img[pt[0], pt[1]] for pt in coords]
-    return np.array(values)
+    return coords, np.array(values)
 
 
 def tile_size_km(zoom: int, latitude: float = 0.0) -> float:
