@@ -224,6 +224,7 @@ class RadarScreen(Screen):
         self.zoom_level += 1
         if self.zoom_level > MAX_ZOOM_LEVEL:
             self.zoom_level = MAX_ZOOM_LEVEL
+            return
         self.fetch_radar_data()
 
     def on_zoom_out(self, _instance):
@@ -231,6 +232,7 @@ class RadarScreen(Screen):
         self.zoom_level -= 1
         if self.zoom_level < MIN_ZOOM_LEVEL:
             self.zoom_level = MIN_ZOOM_LEVEL
+            return
         self.fetch_radar_data()
 
     def fetch_radar_data(self):
