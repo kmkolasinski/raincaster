@@ -2,6 +2,7 @@ raincaster-config.json
 .idea/
 notebooks/
 .buildozer/
+bin/
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
