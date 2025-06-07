@@ -7,12 +7,13 @@ from kivy.core.window import Window
 from kivy.metrics import dp
 from kivy.properties import NumericProperty
 from kivy.storage.jsonstore import JsonStore
-from kivy.uix.screenmanager import Screen, ScreenManager
+from kivy.uix.screenmanager import ScreenManager
 from kivymd.app import MDApp
 from kivymd.uix import button as md_button
 from kivymd.uix import slider, textfield
 from kivymd.uix.boxlayout import MDBoxLayout
 from kivymd.uix.label import MDLabel
+from kivymd.uix.screen import MDScreen
 from kivymd.uix.widget import Widget as MDWidget
 
 from raincaster import core
@@ -36,13 +37,14 @@ def get_local_utc_offset_hours() -> int:
     return int(offset.total_seconds() // 3600)
 
 
-class RadarScreen(Screen):
+class RadarScreen(MDScreen):
     zoom_level = NumericProperty(7)
 
     def __init__(self, app: "RaincasterApp", **kwargs):
         super().__init__(name="radar", **kwargs)
         self.app = app
         self.frame_data = []  # List of tuples (frame, image)
+        self.location_info_text = ""
         layout = MDBoxLayout(orientation="vertical", padding=[dp(8)], spacing=dp(8))
 
         # Buttons row: location, zoom in, zoom out
@@ -56,6 +58,16 @@ class RadarScreen(Screen):
             height=dp(48),
             pos_hint={"center_x": 0.5, "center_y": 0.5},
             radius=[dp(0)],
+        )
+
+        self.location_info_label = MDLabel(
+            text="...",
+            halign="center",
+            size_hint_y=None,
+            md_bg_color=(0.6, 0.6, 0.5, 0.5),
+            role="small",
+            height=dp(32),
+            padding=[dp(8)],
         )
 
         # Input fields for lat, lon, utc_offset, color
@@ -75,6 +87,10 @@ class RadarScreen(Screen):
             size_hint_y=None,
             height=dp(48),
         )
+        # bind edit finished to lat and lon inputs to update location info
+        self.lat_input.bind(on_text_validate=self.location_changed)
+        self.lon_input.bind(on_text_validate=self.location_changed)
+
         self.color_input = textfield.MDTextField(
             text="8",
             input_filter="int",
@@ -91,6 +107,7 @@ class RadarScreen(Screen):
         input_box.add_widget(self.lon_input)
         input_box.add_widget(self.color_input)
         layout.add_widget(input_box)
+        layout.add_widget(self.location_info_label)
 
         # Fetch button
         self.fetch_button = md_button.MDButton(
@@ -137,7 +154,7 @@ class RadarScreen(Screen):
             height=dp(48),
         )
 
-        self.image_widget = radar_image_widget.RadarImageWidget(height=dp(400), size_hint_y=None)
+        self.image_widget = radar_image_widget.RadarImageWidget(height=dp(350), size_hint_y=None)
 
         buttons_row = MDBoxLayout(
             orientation="horizontal",
@@ -198,6 +215,9 @@ class RadarScreen(Screen):
             self.lon_input.text = str(config["lon"]["value"])
         if "color" in config:
             self.color_input.text = str(config["color"]["value"])
+        if "location_info" in config:
+            self.location_info_text = config["location_info"]["value"]
+            self.location_info_label.text = config["location_info"]["value"]
 
     def update_config(self):
         """
@@ -207,6 +227,15 @@ class RadarScreen(Screen):
         self.app.app_config.put("lat", value=float(self.lat_input.text))
         self.app.app_config.put("lon", value=float(self.lon_input.text))
         self.app.app_config.put("color", value=int(self.color_input.text))
+        self.app.app_config.put("location_info", value=self.location_info_text)
+
+    def location_changed(self, *_):
+        print("Location changed:", self.lat_input.text, self.lon_input.text)
+        lat = float(self.lat_input.text)
+        lon = float(self.lon_input.text)
+        self.show_loading()
+        self.location_info_text = core.get_location_info(lat=lat, lon=lon)
+        threading.Thread(target=self.fetch_radar_data).start()
 
     def on_location_button(self, *_):
         try:
@@ -219,14 +248,20 @@ class RadarScreen(Screen):
             self.time_label.text = "plyer not installed"
             return
 
+        location_updated = False
+
         @mainthread
         def on_location(**kwargs):
+            nonlocal location_updated
             lat = kwargs.get("lat")
             lon = kwargs.get("lon")
             if lat is not None and lon is not None:
                 self.lat_input.text = str(lat)
                 self.lon_input.text = str(lon)
                 self.time_label.text = "Location updated"
+                if not location_updated:
+                    self.location_changed()
+                    location_updated = True
                 print(f"Location: lat={lat}, lon={lon}")
             else:
                 self.time_label.text = "Location unavailable"
@@ -290,6 +325,7 @@ class RadarScreen(Screen):
     @mainthread
     def update_ui(self):
         self.slider.max = len(self.frame_data) - 1 if self.frame_data else 1
+        self.location_info_label.text = self.location_info_text
         self.on_slider_value(self.slider, self.slider.value)
 
     def on_slider_value(self, _instance, value: str | int):
@@ -337,7 +373,7 @@ class RaincasterApp(MDApp):
         self.theme_cls.theme_style = "Dark"
 
         sm = ScreenManager()
-        sm.add_widget(RadarScreen(self))
+        sm.add_widget(RadarScreen(self, md_bg_color=self.theme_cls.backgroundColor))
         return sm
 
 

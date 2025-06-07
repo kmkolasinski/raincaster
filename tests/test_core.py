@@ -14,3 +14,8 @@ def test__fetch_weather_maps():
 def test__tile_size_km():
     size = core.tile_size_km(zoom=7, latitude=50.061)
     assert int(size) == 200
+
+
+def test__get_location_info():
+    location = core.get_location_info(lat=50, lon=14)
+    assert location != "Cannot GPS location info"

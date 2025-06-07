@@ -10,6 +10,7 @@ import math
 from concurrent import futures
 from io import BytesIO
 
+import certifi
 import numpy as np
 import requests
 from PIL import Image
@@ -169,22 +170,22 @@ class WeatherMaps:
         return past_data, nowcast_data
 
 
-def fetch_weather_maps(api_url: str = RAIN_VIEWER_API_URL) -> WeatherMaps:
+def fetch_weather_maps(api_url: str = RAIN_VIEWER_API_URL, timeout: float = 100) -> WeatherMaps:
     """
     Fetches weather maps JSON data from RainViewer API.
 
     Parameters:
         api_url (str): URL of the RainViewer API.
+        timeout (float): Timeout for the API request in seconds.
 
     Returns:
         tuple: A tuple containing the host and radar data.
     """
 
-    response = requests.get(api_url)
-    if response.status_code == 200:
+    response = requests.get(api_url, timeout=timeout)
+    if response.ok:
         return WeatherMaps.from_dict(response.json())
-    else:
-        raise Exception(f"Failed to fetch weather maps: {response.status_code}")
+    raise ValueError(f"Failed to fetch weather maps: {response.status_code}")
 
 
 def fetch_radar_map_raw(
@@ -197,14 +198,14 @@ def fetch_radar_map_raw(
     size: int = 512,
     color: int = 2,
     options: str = "1_0",
+    timeout: float = 100.0,
 ) -> Image.Image:
     """Fetches a radar map image from RainViewer."""
     tile_url = f"{host}/{frame.path}/{size}/{zoom}/{lat}/{lon}/{color}/{options}.png"
-    response = requests.get(tile_url)
-    if response.status_code == 200:
+    response = requests.get(tile_url, timeout=timeout)
+    if response.ok:
         return Image.open(BytesIO(response.content))
-    else:
-        raise ValueError(f"Failed to download the radar tile: {response.status_code}")
+    raise ValueError(f"Failed to download the radar tile: {response.status_code}")
 
 
 def dbz_to_rain_rate(dbz: int) -> tuple[str, str]:
@@ -219,7 +220,9 @@ def dbz_to_rain_rate(dbz: int) -> tuple[str, str]:
     return rain_rate_in_hr[-1], rain_rate_mm_hr[-1]
 
 
-def cross_section(image, angle: float, channel: int = 0) -> list[float]:
+def cross_section(
+    image, angle: float, channel: int = 0
+) -> tuple[list[tuple[int, int]], list[float]]:
     """
     Sample pixels along a line at the given angle (in degrees) through the center of the image.
     Does not use interpolation, just nearest-pixel sampling.
@@ -233,27 +236,25 @@ def cross_section(image, angle: float, channel: int = 0) -> list[float]:
         List of pixel values along the line (center included)
     """
     img = np.asarray(image)
-    if img.ndim == 3:
+    if img.ndim == 3:  # noqa: PLR2004
         img = img[..., channel]
-    H, W = img.shape
-    cy, cx = (H) / 2, (W) / 2  # Image center
+    height, width = img.shape
+    cy, cx = height / 2, width / 2  # Image center
 
     angle = np.deg2rad(angle)
     dx = np.cos(angle)
     dy = np.sin(angle)
-    # print(f"Cross-section angle: {angle} radians, direction: ({dx}, {dy})")
 
     # Maximum number of steps in either direction from the center
-    max_dist = int(np.ceil(np.sqrt(H**2 + W**2) / 2))
+    max_dist = int(np.ceil(np.sqrt(height**2 + width**2) / 2))
 
-    coords = []
+    coords: list[tuple[int, int]] = []
     # Forward direction
     for n in range(max_dist):
         x = cx + n * dx
         y = cy + n * dy
         ix, iy = int(round(x)), int(round(y))
-        # print(n, x, y, ix, iy)
-        if 0 <= ix < W and 0 <= iy < H:
+        if 0 <= ix < width and 0 <= iy < height:
             coords.append((iy, ix))
         else:
             break
@@ -262,24 +263,21 @@ def cross_section(image, angle: float, channel: int = 0) -> list[float]:
         x = cx - n * dx
         y = cy - n * dy
         ix, iy = int(round(x)), int(round(y))
-        if 0 <= ix < W and 0 <= iy < H:
+        if 0 <= ix < width and 0 <= iy < height:
             coords.insert(0, (iy, ix))
         else:
             break
 
     # Sort points along the line (by their n, which is their projection along direction)
     coords = list(coords)
-    # To sort, project to direction vector (dx,dy) from center
-    # coords.sort(key=lambda pt: (pt[0] - cy) * dy + (pt[1] - cx) * dx)
-    # print(coords)
-    values = [img[pt[0], pt[1]] for pt in coords]
-    return coords, np.array(values)
+    values = [float(img[pt[0], pt[1]]) for pt in coords]
+    return coords, values
 
 
 def tile_size_km(zoom: int, latitude: float = 0.0) -> float:
     """
-    Returns the approximate width (and height) in km of a map tile at a given zoom level and latitude.
-    By default, calculation is for the equator.
+    Returns the approximate width (and height) in km of a map tile at a given zoom
+    level and latitude. By default, calculation is for the equator.
     """
     # Earth's circumference in kilometers (at the equator)
     earth_circum_km = 40075.0
@@ -288,5 +286,33 @@ def tile_size_km(zoom: int, latitude: float = 0.0) -> float:
     # Tile size at equator
     tile_km = earth_circum_km / n_tiles
     # Adjust for latitude
-    tile_km_lat = tile_km * math.cos(math.radians(latitude))
-    return tile_km_lat
+    return tile_km * math.cos(math.radians(latitude))
+
+
+def get_location_info(lat: float, lon: float, timeout: float = 100.0) -> str:
+    url = "https://nominatim.openstreetmap.org/reverse"
+    params = {
+        "lat": lat,
+        "lon": lon,
+        "format": "json",
+        "accept-language": "en",
+        "addressdetails": 1,
+    }
+    headers = {"User-Agent": "Raincaster/1.0 (raincaster@app.com)"}
+
+    response = requests.get(
+        url, timeout=timeout, params=params, headers=headers, verify=certifi.where()
+    )
+
+    if response.ok:
+        location_data = response.json()
+        if "address" in location_data:
+            address = location_data["address"]
+            house_number = address.get("house_number", "")
+            road = address.get("road", "")
+            city = address.get("city", "")
+            return f"{road} {house_number}, {city}".replace("  ", " ").strip()
+
+        return "Cannot Parse Location info"
+
+    return "Cannot Get Location Info"
