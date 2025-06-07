@@ -5,10 +5,9 @@ from kivy.clock import mainthread
 from kivy.core.window import Window
 from kivy.metrics import dp
 from kivy.properties import (
-    ListProperty,
     NumericProperty,
-    StringProperty,
 )
+from kivy.storage.jsonstore import JsonStore
 from kivy.uix.screenmanager import Screen, ScreenManager
 from kivymd.app import MDApp
 from kivymd.uix import button as md_button
@@ -30,7 +29,7 @@ MAX_ZOOM_LEVEL = 8
 MIN_ZOOM_LEVEL = 5
 
 
-def get_local_utc_offset_hours():
+def get_local_utc_offset_hours() -> int:
     import datetime
 
     now = datetime.datetime.now(datetime.UTC).astimezone()
@@ -39,15 +38,12 @@ def get_local_utc_offset_hours():
 
 
 class RadarScreen(Screen):
-    current_frame = NumericProperty(0)
     zoom_level = NumericProperty(7)
-    past_images = ListProperty()
-    past_times = ListProperty()
-    current_time_str = StringProperty("")
 
     def __init__(self, **kwargs):
         super().__init__(name="radar", **kwargs)
 
+        self.frame_data = []  # List of tuples (frame, image)
         layout = MDBoxLayout(orientation="vertical", padding=[dp(8)], spacing=dp(8))
 
         # Buttons row: location, zoom in, zoom out
@@ -239,8 +235,6 @@ class RadarScreen(Screen):
         # Get parameters from input fields
         lat = float(self.lat_input.text)
         lon = float(self.lon_input.text)
-        self.utc_offset = get_local_utc_offset_hours()
-
         color = int(self.color_input.text)
 
         weather_map = core.fetch_weather_maps()
@@ -254,27 +248,28 @@ class RadarScreen(Screen):
         self.slider.max = len(self.frame_data) - 1 if self.frame_data else 1
         self.on_slider_value(self.slider, self.slider.value)
 
-    def on_slider_value(self, _instance, value):
+    def on_slider_value(self, _instance, value: str | int):
+        utc_offset = get_local_utc_offset_hours()
         idx = int(value)
-        new_time_str = self.frame_data[idx][0].time_str(self.utc_offset)
+        frame, image = self.frame_data[idx]
 
         self.image_widget.set_radar_tile_size_km(
             core.tile_size_km(self.zoom_level, float(self.lat_input.text))
         )
-        self.image_widget.set_image(self.frame_data[idx][1])
+        self.image_widget.set_image(image)
 
         # Determine if the frame is in the past or future
-
-        frame_time = self.frame_data[idx][0].time_datetime(self.utc_offset)
+        frame_time = frame.time_datetime(utc_offset)
         now = datetime.datetime.now(frame_time.tzinfo)
-        label_str = f"+{new_time_str}" if frame_time > now else f"-{new_time_str}"
 
+        new_time_str = frame.time_str(utc_offset)
+        label_str = f"+{new_time_str}" if frame_time > now else f"-{new_time_str}"
         self.time_label.text = label_str
-        self.current_frame = idx
-        self.current_time_str = new_time_str
 
 
 class RaincasterApp(MDApp):
+    config = JsonStore("config.json")
+
     def build(self):
         if kivy.platform == "android":
             from android.permissions import (  # type: ignore[import-untyped]
@@ -287,6 +282,8 @@ class RaincasterApp(MDApp):
                     Permission.INTERNET,
                     Permission.ACCESS_COARSE_LOCATION,
                     Permission.ACCESS_FINE_LOCATION,
+                    Permission.READ_EXTERNAL_STORAGE,
+                    Permission.WRITE_EXTERNAL_STORAGE,
                 ]
             )
 
