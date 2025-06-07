@@ -17,23 +17,6 @@ from PIL import Image
 
 RAIN_VIEWER_API_URL = "https://api.rainviewer.com/public/weather-maps.json"
 
-# source https://www.noaa.gov/jetstream/reflectivity
-# dBZ values must be checked *downward* (start high), to match the correct rain rate
-dbz_thresholds = [65, 60, 55, 50, 45, 40, 35, 30, 25, 20]
-rain_rate_in_hr = [
-    "16+",
-    "8.00",
-    "4.00",
-    "1.90",
-    "0.92",
-    "0.45",
-    "0.22",
-    "0.10",
-    "0.05",
-    "0.01",
-]
-rain_rate_mm_hr = ["420+", "205", "100", "47", "24", "12", "6", "3", "1", "Trace"]
-
 
 @dataclasses.dataclass
 class RadarFrame:
@@ -206,18 +189,6 @@ def fetch_radar_map_raw(
     if response.ok:
         return Image.open(BytesIO(response.content))
     raise ValueError(f"Failed to download the radar tile: {response.status_code}")
-
-
-def dbz_to_rain_rate(dbz: int) -> tuple[str, str]:
-    """
-    Given a dBZ value, return the corresponding rain rate
-    in in/hr and mm/hr as strings from the category table.
-    """
-    for thresh, inhr, mmhr in zip(dbz_thresholds, rain_rate_in_hr, rain_rate_mm_hr, strict=False):
-        if dbz >= thresh:
-            return inhr, mmhr
-    # If below lowest threshold, return lowest rain rates
-    return rain_rate_in_hr[-1], rain_rate_mm_hr[-1]
 
 
 def cross_section(
