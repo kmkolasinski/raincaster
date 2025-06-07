@@ -1,12 +1,11 @@
 import datetime
+import threading
 
 import kivy
-from kivy.clock import mainthread
+from kivy.clock import Clock, mainthread
 from kivy.core.window import Window
 from kivy.metrics import dp
-from kivy.properties import (
-    NumericProperty,
-)
+from kivy.properties import NumericProperty
 from kivy.storage.jsonstore import JsonStore
 from kivy.uix.screenmanager import Screen, ScreenManager
 from kivymd.app import MDApp
@@ -17,7 +16,7 @@ from kivymd.uix.label import MDLabel
 from kivymd.uix.widget import Widget as MDWidget
 
 from raincaster import core
-from raincaster.kivy import radar_image
+from raincaster.kivy import radar_image_widget
 
 if kivy.platform == "linux":
     Window.size = (500, 900)  # width, height in pixels
@@ -40,9 +39,9 @@ def get_local_utc_offset_hours() -> int:
 class RadarScreen(Screen):
     zoom_level = NumericProperty(7)
 
-    def __init__(self, **kwargs):
+    def __init__(self, app: "RaincasterApp", **kwargs):
         super().__init__(name="radar", **kwargs)
-
+        self.app = app
         self.frame_data = []  # List of tuples (frame, image)
         layout = MDBoxLayout(orientation="vertical", padding=[dp(8)], spacing=dp(8))
 
@@ -138,7 +137,7 @@ class RadarScreen(Screen):
             height=dp(48),
         )
 
-        self.image_widget = radar_image.RadarImage()
+        self.image_widget = radar_image_widget.RadarImageWidget(height=dp(400), size_hint_y=None)
 
         buttons_row = MDBoxLayout(
             orientation="horizontal",
@@ -172,7 +171,42 @@ class RadarScreen(Screen):
         layout.add_widget(MDWidget())
 
         self.add_widget(layout)
-        self.fetch_radar_data()
+
+        self.load_from_config()
+
+    @mainthread
+    def show_loading(self):
+        self.time_label.text = "Fetching Radar Data ..."
+
+    @mainthread
+    def hide_loading(self):
+        pass
+
+    def on_enter(self, *_):
+        self.show_loading()
+        threading.Thread(target=self.fetch_radar_data).start()
+
+    def load_from_config(self):
+        """
+        Load initial values from the app's config.
+        This is called when the app starts to set default lat/lon/color.
+        """
+        config = self.app.app_config
+        if "lat" in config:
+            self.lat_input.text = str(config["lat"]["value"])
+        if "lon" in config:
+            self.lon_input.text = str(config["lon"]["value"])
+        if "color" in config:
+            self.color_input.text = str(config["color"]["value"])
+
+    def update_config(self):
+        """
+        Update the app's config with current lat/lon/color values.
+        This is called after fetching radar data or when the user changes inputs.
+        """
+        self.app.app_config.put("lat", value=float(self.lat_input.text))
+        self.app.app_config.put("lon", value=float(self.lon_input.text))
+        self.app.app_config.put("color", value=int(self.color_input.text))
 
     def on_location_button(self, *_):
         try:
@@ -193,6 +227,7 @@ class RadarScreen(Screen):
                 self.lat_input.text = str(lat)
                 self.lon_input.text = str(lon)
                 self.time_label.text = "Location updated"
+                print(f"Location: lat={lat}, lon={lon}")
             else:
                 self.time_label.text = "Location unavailable"
 
@@ -213,7 +248,8 @@ class RadarScreen(Screen):
             self.time_label.text = f"GPS error: {e}"
 
     def on_fetch_button(self, _instance):
-        self.fetch_radar_data()
+        self.show_loading()
+        threading.Thread(target=self.fetch_radar_data).start()
 
     def on_zoom_in(self, _instance):
         # Increase radar image zoom (decrease size parameter)
@@ -221,7 +257,8 @@ class RadarScreen(Screen):
         if self.zoom_level > MAX_ZOOM_LEVEL:
             self.zoom_level = MAX_ZOOM_LEVEL
             return
-        self.fetch_radar_data()
+        self.show_loading()
+        threading.Thread(target=self.fetch_radar_data).start()
 
     def on_zoom_out(self, _instance):
         # Decrease radar image zoom (increase size parameter)
@@ -229,21 +266,28 @@ class RadarScreen(Screen):
         if self.zoom_level < MIN_ZOOM_LEVEL:
             self.zoom_level = MIN_ZOOM_LEVEL
             return
-        self.fetch_radar_data()
+        self.show_loading()
+        threading.Thread(target=self.fetch_radar_data).start()
 
-    def fetch_radar_data(self):
-        # Get parameters from input fields
-        lat = float(self.lat_input.text)
-        lon = float(self.lon_input.text)
-        color = int(self.color_input.text)
+    def fetch_radar_data(self, *_):
+        try:
+            # Get parameters from input fields
+            lat = float(self.lat_input.text)
+            lon = float(self.lon_input.text)
+            color = int(self.color_input.text)
 
-        weather_map = core.fetch_weather_maps()
-        past_data, future_data = weather_map.fetch_all_radar_maps(
-            lat=lat, lon=lon, zoom=self.zoom_level, color=color
-        )
-        self.frame_data = past_data + future_data
-        self.update_ui()
+            weather_map = core.fetch_weather_maps()
+            past_data, future_data = weather_map.fetch_all_radar_maps(
+                lat=lat, lon=lon, zoom=self.zoom_level, color=color
+            )
+            self.frame_data = past_data + future_data
+            self.update_ui()
+            self.update_config()
+        finally:
+            # Ensure hiding overlay on main thread
+            Clock.schedule_once(lambda *_: self.hide_loading(), 0)
 
+    @mainthread
     def update_ui(self):
         self.slider.max = len(self.frame_data) - 1 if self.frame_data else 1
         self.on_slider_value(self.slider, self.slider.value)
@@ -251,6 +295,9 @@ class RadarScreen(Screen):
     def on_slider_value(self, _instance, value: str | int):
         utc_offset = get_local_utc_offset_hours()
         idx = int(value)
+        if not self.frame_data or idx < 0 or idx >= len(self.frame_data):
+            self.time_label.text = "No data available"
+            return
         frame, image = self.frame_data[idx]
 
         self.image_widget.set_radar_tile_size_km(
@@ -268,7 +315,7 @@ class RadarScreen(Screen):
 
 
 class RaincasterApp(MDApp):
-    config = JsonStore("config.json")
+    app_config = JsonStore("raincaster-config.json")
 
     def build(self):
         if kivy.platform == "android":
@@ -290,7 +337,7 @@ class RaincasterApp(MDApp):
         self.theme_cls.theme_style = "Dark"
 
         sm = ScreenManager()
-        sm.add_widget(RadarScreen())
+        sm.add_widget(RadarScreen(self))
         return sm
 
 

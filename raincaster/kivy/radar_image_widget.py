@@ -11,16 +11,12 @@ from kivymd.uix.widget import Widget as MDWidget
 from PIL import Image as PILImage
 
 
-class RadarImage(MDWidget):
+class RadarImageWidget(MDWidget):
     texture = ObjectProperty(None, allownone=True)
-    keep_ratio = BooleanProperty(True)
+    keep_ratio = BooleanProperty(defaultvalue=True)
 
     def __init__(self, texture=None, keep_ratio=True, **kwargs):
         super().__init__(**kwargs)
-
-        if texture is None:
-            image = PILImage.new("RGB", (512, 512), (255, 255, 255))
-            texture = pil_to_texture(image)
 
         self.texture = texture
         self.keep_ratio = keep_ratio
@@ -54,9 +50,11 @@ class RadarImage(MDWidget):
             return 0
         return (radius_km / self.radar_tile_size_km) * min(self.width, self.height)
 
-    def update_canvas(self, *args):
+    def update_canvas(self, *_):
         self.canvas.clear()
         with self.canvas:
+            Color(1.0, 1.0, 1.0, 0.7)
+            Rectangle(pos=self.pos, size=self.size)
             if self.texture:
                 if self.keep_ratio:
                     # Calculate rectangle preserving aspect ratio
@@ -74,6 +72,8 @@ class RadarImage(MDWidget):
                 else:
                     Rectangle(texture=self.texture, pos=self.pos, size=self.size)
 
+            if not self.texture:
+                return
             # Draw 25 km and 50 km circles with labels
             # Use a light blue color for better visibility
             Color(0.0, 0.1, 0.2, 0.7)
