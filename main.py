@@ -1,3 +1,5 @@
+import datetime
+
 import kivy
 from kivy.clock import mainthread
 from kivy.core.window import Window
@@ -13,7 +15,7 @@ from kivymd.uix import button as md_button
 from kivymd.uix import slider, textfield
 from kivymd.uix.boxlayout import MDBoxLayout
 from kivymd.uix.label import MDLabel
-from kivymd.uix.widget import Widget
+from kivymd.uix.widget import Widget as MDWidget
 
 from raincaster import core
 from raincaster.kivy import radar_image
@@ -22,6 +24,10 @@ if kivy.platform == "linux":
     Window.size = (500, 900)  # width, height in pixels
     Window.minimum_width = 400
     Window.minimum_height = 600
+
+# Constants for zoom levels
+MAX_ZOOM_LEVEL = 8
+MIN_ZOOM_LEVEL = 5
 
 
 def get_local_utc_offset_hours():
@@ -136,7 +142,7 @@ class RadarScreen(Screen):
             height=dp(48),
         )
 
-        self.image_widget = radar_image.RadarImage(texture=None)
+        self.image_widget = radar_image.RadarImage()
 
         buttons_row = MDBoxLayout(
             orientation="horizontal",
@@ -144,11 +150,11 @@ class RadarScreen(Screen):
             height=dp(48),
         )
 
-        buttons_row.add_widget(Widget())  # left spacer
+        buttons_row.add_widget(MDWidget())  # left spacer
         buttons_row.add_widget(self.zoom_in_button)
         buttons_row.add_widget(self.fetch_button)
         buttons_row.add_widget(self.zoom_out_button)
-        buttons_row.add_widget(Widget())  # right spacer
+        buttons_row.add_widget(MDWidget())  # right spacer
 
         layout.add_widget(self.image_widget)
         layout.add_widget(buttons_row)
@@ -167,12 +173,12 @@ class RadarScreen(Screen):
         )
         self.slider.bind(value=self.on_slider_value)
         layout.add_widget(self.slider)
-        layout.add_widget(Widget())
+        layout.add_widget(MDWidget())
 
         self.add_widget(layout)
         self.fetch_radar_data()
 
-    def on_location_button(self, instance):
+    def on_location_button(self, *_):
         try:
             from raincaster.kivy.gps import AndroidGPS
 
@@ -196,7 +202,7 @@ class RadarScreen(Screen):
 
             gps.stop()
 
-        def on_status(status_type, status):
+        def on_status(status_type: str, *_):
             if status_type == "provider-enabled":
                 self.time_label.text = "Getting location..."
             elif status_type == "provider-disabled":
@@ -207,24 +213,24 @@ class RadarScreen(Screen):
         try:
             gps.start()
             self.time_label.text = "Requesting location..."
-        except Exception as e:
+        except (AttributeError, RuntimeError) as e:
             self.time_label.text = f"GPS error: {e}"
 
-    def on_fetch_button(self, instance):
+    def on_fetch_button(self, _instance):
         self.fetch_radar_data()
 
-    def on_zoom_in(self, instance):
+    def on_zoom_in(self, _instance):
         # Increase radar image zoom (decrease size parameter)
         self.zoom_level += 1
-        if self.zoom_level > 8:
-            self.zoom_level = 8
+        if self.zoom_level > MAX_ZOOM_LEVEL:
+            self.zoom_level = MAX_ZOOM_LEVEL
         self.fetch_radar_data()
 
-    def on_zoom_out(self, instance):
+    def on_zoom_out(self, _instance):
         # Decrease radar image zoom (increase size parameter)
         self.zoom_level -= 1
-        if self.zoom_level < 5:
-            self.zoom_level = 5
+        if self.zoom_level < MIN_ZOOM_LEVEL:
+            self.zoom_level = MIN_ZOOM_LEVEL
         self.fetch_radar_data()
 
     def fetch_radar_data(self):
@@ -246,7 +252,7 @@ class RadarScreen(Screen):
         self.slider.max = len(self.frame_data) - 1 if self.frame_data else 1
         self.on_slider_value(self.slider, self.slider.value)
 
-    def on_slider_value(self, instance, value):
+    def on_slider_value(self, _instance, value):
         idx = int(value)
         new_time_str = self.frame_data[idx][0].time_str(self.utc_offset)
 
@@ -256,14 +262,10 @@ class RadarScreen(Screen):
         self.image_widget.set_image(self.frame_data[idx][1])
 
         # Determine if the frame is in the past or future
-        import datetime
 
         frame_time = self.frame_data[idx][0].time_datetime(self.utc_offset)
         now = datetime.datetime.now(frame_time.tzinfo)
-        if frame_time > now:
-            label_str = f"+{new_time_str}"
-        else:
-            label_str = f"-{new_time_str}"
+        label_str = f"+{new_time_str}" if frame_time > now else f"-{new_time_str}"
 
         self.time_label.text = label_str
         self.current_frame = idx
@@ -273,7 +275,10 @@ class RadarScreen(Screen):
 class RaincasterApp(MDApp):
     def build(self):
         if kivy.platform == "android":
-            from android.permissions import Permission, request_permissions  # type: ignore
+            from android.permissions import (  # type: ignore[import-untyped]
+                Permission,
+                request_permissions,
+            )
 
             request_permissions(
                 [
