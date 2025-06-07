@@ -24,15 +24,22 @@ class MyLocationListener(PythonJavaClass):
         self.root = root
         super().__init__()
 
+    # old API (<= 30)
+    @java_method("(Landroid/location/Location;)V", name="onLocationChanged")
+    def onLocationChanged_location(self, location):
+        print(f">> onLocationChanged: {location}")
+        self._dispatch(location)
+
     # old API (<=30)
     @java_method("(Landroid/location/Location;)V")
     def onLocationChanged(self, location):
+        print(f">> onLocationChanged: {location}")
         self._dispatch(location)
 
     # new API (>=31)
     @java_method("(Ljava/util/List;)V")
     def onLocationChanged(self, locations):  # noqa
-        print(f">> onLocationChanged: {locations}")
+        print(f">> onLocationChanged[list]: {locations}")
         if locations and locations.size() > 0:
             self._dispatch(locations.get(0))
 
