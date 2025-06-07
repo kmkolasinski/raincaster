@@ -24,6 +24,22 @@ rain prediction.
 2. **(Optional) Set up Android SDK/NDK:**
    - Follow [Kivy's Android packaging guide](https://kivy.org/doc/stable/guide/packaging-android.html#packaging-android) if building for Android.
 
+## Git LFS Setup
+
+This project uses [Git Large File Storage (LFS)](https://git-lfs.github.com/) for files in the `bin/` directory.
+
+1. **Install Git LFS:**
+   ```bash
+   git lfs install
+   ```
+
+3. **Pull LFS files:**
+   ```bash
+   git lfs pull
+   ```
+
+If you add new large files to `bin/`, they will automatically be tracked by LFS due to the `.gitattributes` configuration.
+
 ## Build & Run Commands
 
 - **List connected Android devices:**
@@ -45,7 +61,7 @@ rain prediction.
 
 - **Build, deploy, and run (release):**
   ```bash
-  BUILDOZER_ALLOW_ORG_TEST_DOMAIN=1 buildozer android release deploy run
+  BUILDOZER_ALLOW_ORG_TEST_DOMAIN=1 buildozer android release
   ```
 
 ## Resources

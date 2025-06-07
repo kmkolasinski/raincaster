@@ -7,7 +7,8 @@ title = Raincaster
 package.name = raincaster
 
 # (str) Package domain (needed for android/ios packaging)
-package.domain = org.test
+# package.domain = org.test
+package.domain = com.raincaster
 
 # (str) Source code where the main.py live
 source.dir = .
