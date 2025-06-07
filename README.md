@@ -3,7 +3,7 @@
 Raincaster is a mobile application built with Kivy and KivyMD for weather forecasting and
 rain prediction.
 
-![app-demo.gif](app-demo.gif)
+<img src="app-demo.gif" width="300"/>
 
 [Debug APK](https://drive.google.com/file/d/1Ty8BwSFkTP-wsREUnCLdG-clqsdrczP_/view?usp=sharing)
 
