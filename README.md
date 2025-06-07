@@ -3,42 +3,27 @@
 Raincaster is a mobile application built with Kivy and KivyMD for weather forecasting and
 rain prediction.
 
+![app-demo.gif](app-demo.gif)
+
+[Debug APK](https://drive.google.com/file/d/1Ty8BwSFkTP-wsREUnCLdG-clqsdrczP_/view?usp=sharing)
+
 ## Features
 
-- Rain radar
+- Rain radar map
 - Modern UI with KivyMD
 
 ## Installation
 
 1. **Install dependencies:**
-   - Ensure you have Python 3.7+ installed.
-   - Install Kivy and KivyMD:
+   - Ensure you have Python 3.11+ installed.
+   - Install project:
      ```bash
      pip install ."[dev,android]"
      ```
-   - Install Buildozer (for Android builds):
-     ```bash
-     pip install buildozer
-     ```
+
 
 2. **(Optional) Set up Android SDK/NDK:**
    - Follow [Kivy's Android packaging guide](https://kivy.org/doc/stable/guide/packaging-android.html#packaging-android) if building for Android.
-
-## Git LFS Setup
-
-This project uses [Git Large File Storage (LFS)](https://git-lfs.github.com/) for files in the `bin/` directory.
-
-1. **Install Git LFS:**
-   ```bash
-   git lfs install
-   ```
-
-3. **Pull LFS files:**
-   ```bash
-   git lfs pull
-   ```
-
-If you add new large files to `bin/`, they will automatically be tracked by LFS due to the `.gitattributes` configuration.
 
 ## Build & Run Commands
 
@@ -59,7 +44,7 @@ If you add new large files to `bin/`, they will automatically be tracked by LFS 
   buildozer android debug deploy run
   ```
 
-- **Build, deploy, and run (release):**
+- **Build release:**
   ```bash
   BUILDOZER_ALLOW_ORG_TEST_DOMAIN=1 buildozer android release
   ```
