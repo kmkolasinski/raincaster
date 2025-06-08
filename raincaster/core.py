@@ -193,7 +193,7 @@ def fetch_radar_map_raw(
 
 def cross_section(
     image, angle: float, channel: int = 0
-) -> tuple[list[tuple[int, int]], list[float]]:
+) -> tuple[list[tuple[int, int]], list[float], list[float]]:
     """
     Sample pixels along a line at the given angle (in degrees) through the center of the image.
     Does not use interpolation, just nearest-pixel sampling.
@@ -204,7 +204,10 @@ def cross_section(
         channel: int, for color images
 
     Returns:
-        List of pixel values along the line (center included)
+        coords: list of (y, x) tuples representing pixel coordinates along the cross-section
+        values: list of pixel values at those coordinates
+        distances: list of distances from the center of the image to each coordinate
+
     """
     img = np.asarray(image)
     if img.ndim == 3:  # noqa: PLR2004
@@ -220,7 +223,7 @@ def cross_section(
     max_dist = int(np.ceil(np.sqrt(height**2 + width**2) / 2))
 
     coords: list[tuple[int, int]] = []
-    # Forward direction
+
     for n in range(max_dist):
         x = cx + n * dx
         y = cy + n * dy
@@ -229,20 +232,128 @@ def cross_section(
             coords.append((iy, ix))
         else:
             break
-    # Backward direction
-    for n in range(1, max_dist):  # start from 1 to avoid duplicating the center
-        x = cx - n * dx
-        y = cy - n * dy
-        ix, iy = int(round(x)), int(round(y))
-        if 0 <= ix < width and 0 <= iy < height:
-            coords.insert(0, (iy, ix))
-        else:
-            break
 
-    # Sort points along the line (by their n, which is their projection along direction)
-    coords = list(coords)
-    values = [float(img[pt[0], pt[1]]) for pt in coords]
-    return coords, values
+    def _distance(pt: tuple[int, int]) -> float:
+        """Calculate distance from the center."""
+        return math.sqrt((pt[0] - cy) ** 2 + (pt[1] - cx) ** 2)
+
+    coords = sorted(coords, key=lambda pt: _distance(pt))
+    values = np.array([float(img[pt[0], pt[1]]) for pt in coords])
+    distances = [_distance(pt) for pt in coords]
+    return coords, values, distances
+
+
+def cluster_cross_section_rain_regions(
+    values: np.ndarray, threshold: float = 0.3
+) -> list[np.ndarray]:
+    values = np.array(values)
+
+    values[values < threshold] = 0.0
+    values[values >= threshold] = 1.0
+
+    indices = np.where(values == 1.0)[0]
+    return np.split(indices, np.where(np.diff(indices) != 1)[0] + 1)
+
+
+def simplify_cross_section_rain_regions(
+    values: np.ndarray, min_cluster_size: float, threshold: float = 0.3
+) -> np.ndarray:
+    clusters = cluster_cross_section_rain_regions(values, threshold)
+    new_values = np.zeros_like(values)
+
+    if len(clusters) <= 1:
+        for cluster in clusters:
+            new_values[cluster] = 1.0
+        return new_values
+
+    clusters_indices = list(range(len(clusters)))
+    for left_i, right_i in zip(clusters_indices[:-1], clusters_indices[1:], strict=True):  # noqa: RUF007
+        left_max_idx = clusters[left_i].max()
+        right_min_idx = clusters[right_i].min()
+        if right_min_idx - left_max_idx < min_cluster_size:
+            clusters[right_i] = np.arange(clusters[left_i].min(), clusters[right_i].max() + 1)
+
+    for cluster in clusters[1:-1]:
+        if len(cluster) >= min_cluster_size:
+            new_values[cluster] = 1.0
+
+    for cluster in [clusters[0], clusters[-1]]:
+        new_values[cluster] = 1.0
+
+    return new_values
+
+
+def find_first_above_threshold(cross: np.ndarray, threshold: float = 0.5) -> int:
+    for i, value in enumerate(cross):
+        if value > threshold:
+            return i
+    return -1
+
+
+def estimate_time_to_rain_start(
+    frame_data: list[tuple[RadarFrame, Image.Image]], direction_angle: float
+):
+    signal_data = []
+
+    for frame, image in frame_data:
+        image_np = np.array(image)
+        alpha = image_np[..., 3] / 255.0
+        image_np = image_np[..., :3].mean(axis=-1) * alpha
+        image_np /= image_np.max()
+
+        coords, cross, distances = cross_section(image_np, direction_angle)
+        signal_data.append((frame.time, coords, cross, distances))
+
+    clusters = []
+    sizes = []
+    for _, _, cross, _ in signal_data:
+        cluster = cluster_cross_section_rain_regions(cross)
+        sizes += [len(c) for c in cluster]
+        clusters.append(cluster)
+    mean_size = 0.5 * float(np.mean(sizes))
+    print(f"Mean Rain cluster size: {mean_size:.2f}")
+
+    distance_to_rain = []
+    timestamps = []
+
+    for timestamp, _, cross, distances in signal_data:
+        cross_simp = simplify_cross_section_rain_regions(cross, mean_size)
+        first_index = find_first_above_threshold(cross_simp)
+        if first_index == -1:
+            timestamps = []
+            distance_to_rain = []
+            continue
+        distance = distances[first_index]
+        if distance < 1:
+            timestamps = []
+            distance_to_rain = []
+            continue
+        timestamps.append(timestamp)
+        distance_to_rain.append(distance)
+
+    if len(timestamps) < 3:
+        return None, None, len(timestamps)
+
+    if len(timestamps) > 5:
+        print("Too many timestamps, using only the last 5 for fitting.")
+        # Use only the last 5 timestamps for fitting
+        timestamps = timestamps[-5:]
+        distance_to_rain = distance_to_rain[-5:]
+
+    to_arrive, correlation_coefficient = fit_time_to_rain(timestamps, distance_to_rain)
+    return to_arrive / 60, correlation_coefficient, len(timestamps)
+
+
+def fit_time_to_rain(timestamps: list[int], distance_to_rain: list[float]) -> tuple[float, float]:
+    coefficients = np.polyfit(timestamps, distance_to_rain, 1)
+    correlation_matrix = np.corrcoef(timestamps, distance_to_rain)
+    correlation_coefficient = correlation_matrix[0, 1]
+
+    time_to_arrive = -distance_to_rain[-1] / coefficients[0]
+    arrive_at_timestamp = timestamps[-1] + time_to_arrive
+    seconds_to_arrive = arrive_at_timestamp - datetime.datetime.now(tz=datetime.UTC).timestamp()
+
+    return seconds_to_arrive, correlation_coefficient
 
 
 def tile_size_km(zoom: int, latitude: float = 0.0) -> float:
@@ -280,9 +391,9 @@ def get_location_info(lat: float, lon: float, timeout: float = 100.0) -> str:
         if "address" in location_data:
             address = location_data["address"]
             house_number = address.get("house_number", "")
-            road = address.get("road", "")
-            city = address.get("city", "")
-            return f"{road} {house_number}, {city}".replace("  ", " ").strip()
+            road = address.get("road", "") or address.get("neighbourhood", "")
+            city = address.get("city", "") or address.get("town", "") or address.get("village", "")
+            return f"{road} {house_number}, {city}".replace("  ", " ").replace(" , ", ", ").strip()
 
         return "Cannot Parse Location info"
 
