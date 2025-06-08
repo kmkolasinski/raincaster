@@ -43,6 +43,7 @@ class RadarScreen(MDScreen):
     def __init__(self, app: "RaincasterApp", **kwargs):
         super().__init__(name="radar", **kwargs)
         self.app = app
+        self.frame_past_data = []  # List of tuples (frame, image) for past data
         self.frame_data = []  # List of tuples (frame, image)
         self.location_info_text = ""
         layout = MDBoxLayout(orientation="vertical", padding=[dp(8)], spacing=dp(8))
@@ -74,7 +75,7 @@ class RadarScreen(MDScreen):
         self.lat_input = textfield.MDTextField(
             textfield.MDTextFieldHintText(text="Latitude"),
             mode="filled",
-            text="50.07317",
+            text="50.2584",
             input_filter="float",
             size_hint_y=None,
             height=dp(48),
@@ -82,7 +83,7 @@ class RadarScreen(MDScreen):
         self.lon_input = textfield.MDTextField(
             textfield.MDTextFieldHintText(text="Longitude"),
             mode="filled",
-            text="19.8948",
+            text="19.0275",
             input_filter="float",
             size_hint_y=None,
             height=dp(48),
@@ -191,22 +192,24 @@ class RadarScreen(MDScreen):
             min=0,
             max=360,
             value=180,
-            step=10,
+            step=5,
             size_hint_y=None,
             height=dp(32),
         )
         self.direction_slider.bind(
             value=self.update_ui,
-            # bind after slider value change to update image direction
-            on_touch_up=self.direction_slider_updated,
+        )
+        self.direction_slider.bind(
+            on_touch_up=self._on_direction_slider_touch_up,
         )
 
         self.rain_arrive_forcast_label = MDLabel(
             text="...",
             halign="center",
+            role="small",
             size_hint_y=None,
             md_bg_color=(0.6, 0.6, 0.8, 0.5),
-            height=dp(32),
+            height=dp(48),
         )
 
         layout.add_widget(self.time_slider)
@@ -353,6 +356,7 @@ class RadarScreen(MDScreen):
             past_data, future_data = weather_map.fetch_all_radar_maps(
                 lat=lat, lon=lon, zoom=self.zoom_level, color=color
             )
+            self.frame_past_data = past_data
             self.frame_data = past_data + future_data
             self.update_ui()
             self.update_config()
@@ -364,6 +368,7 @@ class RadarScreen(MDScreen):
     def update_ui(self, *_args):
         self.time_slider.max = len(self.frame_data) - 1 if self.frame_data else 1
         self.location_info_label.text = self.location_info_text
+        self.rain_arrive_forcast_label.text = ""
         self.on_slider_value(self.time_slider, self.time_slider.value)
 
     def on_slider_value(self, _instance, value: str | int):
@@ -388,8 +393,31 @@ class RadarScreen(MDScreen):
         label_str = f"+{new_time_str}" if frame_time > now else f"-{new_time_str}"
         self.time_label.text = label_str
 
+    def _on_direction_slider_touch_up(self, instance, touch):
+        # Only trigger if the touch is on the slider handle
+        if instance.collide_point(*touch.pos):
+            self.direction_slider_updated()
+
     def direction_slider_updated(self, *_args):
         print(f"Direction slider updated: {self.direction_slider.value}")
+        arrive_in_min, confidence, num_points = core.estimate_time_to_rain_start(
+            self.frame_past_data, self.direction_slider.value
+        )
+        if arrive_in_min is None:
+            info_str = "No rain prediction available!"
+        elif arrive_in_min < 0:
+            info_str = "Cannot estimate rain start time!"
+        else:
+            confidence = abs(int(confidence * 100))
+            info_str = (
+                f"Estimated rain start in {int(arrive_in_min)} minutes "
+                f"(confidence={confidence}%, num samples={num_points})"
+            )
+        print(
+            f"Estimated rain start in {arrive_in_min} minutes, "
+            f"confidence: {confidence}, points: {num_points}"
+        )
+        self.rain_arrive_forcast_label.text = info_str
 
 
 class RaincasterApp(MDApp):
