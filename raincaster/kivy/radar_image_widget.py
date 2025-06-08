@@ -1,3 +1,4 @@
+import math
 from io import BytesIO
 
 from kivy.core.image import Image as CoreImage
@@ -21,6 +22,7 @@ class RadarImageWidget(MDWidget):
         self.texture = texture
         self.keep_ratio = keep_ratio
         self.radar_tile_size_km = None
+        self.radar_direction = 0.0  # Direction in degrees
         self.bind(
             pos=self.update_canvas,
             size=self.update_canvas,
@@ -40,6 +42,12 @@ class RadarImageWidget(MDWidget):
         This is used to calculate the size of the radar tile in pixels.
         """
         self.radar_tile_size_km = size_km
+
+    def set_radar_direction(self, direction: float):
+        """
+        Set the radar direction in degrees.
+        """
+        self.radar_direction = direction
 
     def get_km_circle_radius(self, radius_km: float) -> float:
         """
@@ -104,6 +112,17 @@ class RadarImageWidget(MDWidget):
                 pos=(self.center_x - d / 2, self.center_y - d / 2),
                 size=(d, d),
             )
+            # Draw a line indicating the radar direction
+            if self.radar_direction is not None:
+                angle_rad = self.radar_direction * (3.141592653589793 / 180.0)
+                line_length = min(self.width, self.height) / 2
+                end_x = self.center_x + line_length * math.cos(angle_rad)
+                end_y = self.center_y - line_length * math.sin(angle_rad)
+                Line(
+                    points=[self.center_x, self.center_y, end_x, end_y],
+                    width=2,
+                    cap="round",
+                )
 
 
 def pil_to_texture(pil_image: PILImage.Image) -> CoreImage:

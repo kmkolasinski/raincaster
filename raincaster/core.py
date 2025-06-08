@@ -16,6 +16,8 @@ import requests
 from PIL import Image
 
 RAIN_VIEWER_API_URL = "https://api.rainviewer.com/public/weather-maps.json"
+MIN_TIMESTAMPS_FOR_FIT = 3
+MAX_TIMESTAMPS_FOR_FIT = 5
 
 
 @dataclasses.dataclass
@@ -331,14 +333,14 @@ def estimate_time_to_rain_start(
         timestamps.append(timestamp)
         distance_to_rain.append(distance)
 
-    if len(timestamps) < 3:
+    if len(timestamps) < MIN_TIMESTAMPS_FOR_FIT:
         return None, None, len(timestamps)
 
-    if len(timestamps) > 5:
-        print("Too many timestamps, using only the last 5 for fitting.")
-        # Use only the last 5 timestamps for fitting
-        timestamps = timestamps[-5:]
-        distance_to_rain = distance_to_rain[-5:]
+    if len(timestamps) > MAX_TIMESTAMPS_FOR_FIT:
+        print(f"Too many timestamps, using only the last {MAX_TIMESTAMPS_FOR_FIT} for fitting.")
+        # Use only the last MAX_TIMESTAMPS_FOR_FIT timestamps for fitting
+        timestamps = timestamps[-MAX_TIMESTAMPS_FOR_FIT:]
+        distance_to_rain = distance_to_rain[-MAX_TIMESTAMPS_FOR_FIT:]
 
     to_arrive, correlation_coefficient = fit_time_to_rain(timestamps, distance_to_rain)
     return to_arrive / 60, correlation_coefficient, len(timestamps)
@@ -347,13 +349,13 @@ def estimate_time_to_rain_start(
 def fit_time_to_rain(timestamps: list[int], distance_to_rain: list[float]) -> tuple[float, float]:
     coefficients = np.polyfit(timestamps, distance_to_rain, 1)
     correlation_matrix = np.corrcoef(timestamps, distance_to_rain)
-    correlation_coefficient = correlation_matrix[0, 1]
+    correlation_coefficient = float(correlation_matrix[0, 1])
 
     time_to_arrive = -distance_to_rain[-1] / coefficients[0]
-    arrive_at_timestamp = timestamps[-1] + time_to_arrive
+    arrive_at_timestamp = float(timestamps[-1] + time_to_arrive)
     seconds_to_arrive = arrive_at_timestamp - datetime.datetime.now(tz=datetime.UTC).timestamp()
 
-    return seconds_to_arrive, correlation_coefficient
+    return float(seconds_to_arrive), correlation_coefficient
 
 
 def tile_size_km(zoom: int, latitude: float = 0.0) -> float:

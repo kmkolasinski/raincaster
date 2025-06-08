@@ -173,7 +173,7 @@ class RadarScreen(MDScreen):
         layout.add_widget(self.time_label)
 
         # Slider below image
-        self.slider = slider.MDSlider(
+        self.time_slider = slider.MDSlider(
             slider.MDSliderHandle(),
             slider.MDSliderValueLabel(),
             min=0,
@@ -183,8 +183,46 @@ class RadarScreen(MDScreen):
             size_hint_y=None,
             height=dp(48),
         )
-        self.slider.bind(value=self.on_slider_value)
-        layout.add_widget(self.slider)
+        self.time_slider.bind(value=self.on_slider_value)
+
+        self.direction_slider = slider.MDSlider(
+            slider.MDSliderHandle(),
+            slider.MDSliderValueLabel(),
+            min=0,
+            max=360,
+            value=180,
+            step=10,
+            size_hint_y=None,
+            height=dp(32),
+        )
+        self.direction_slider.bind(
+            value=self.update_ui,
+            # bind after slider value change to update image direction
+            on_touch_up=self.direction_slider_updated,
+        )
+
+        self.rain_arrive_forcast_label = MDLabel(
+            text="...",
+            halign="center",
+            size_hint_y=None,
+            md_bg_color=(0.6, 0.6, 0.8, 0.5),
+            height=dp(32),
+        )
+
+        layout.add_widget(self.time_slider)
+        layout.add_widget(
+            MDLabel(
+                text="Pick direction (degrees):",
+                halign="center",
+                size_hint_y=None,
+                height=dp(32),
+                md_bg_color=(0.6, 0.6, 0.8, 0.5),
+                role="small",
+                padding=[dp(8)],
+            ),
+        )
+        layout.add_widget(self.direction_slider)
+        layout.add_widget(self.rain_arrive_forcast_label)
         layout.add_widget(MDWidget())
 
         self.add_widget(layout)
@@ -323,10 +361,10 @@ class RadarScreen(MDScreen):
             Clock.schedule_once(lambda *_: self.hide_loading(), 0)
 
     @mainthread
-    def update_ui(self):
-        self.slider.max = len(self.frame_data) - 1 if self.frame_data else 1
+    def update_ui(self, *_args):
+        self.time_slider.max = len(self.frame_data) - 1 if self.frame_data else 1
         self.location_info_label.text = self.location_info_text
-        self.on_slider_value(self.slider, self.slider.value)
+        self.on_slider_value(self.time_slider, self.time_slider.value)
 
     def on_slider_value(self, _instance, value: str | int):
         utc_offset = get_local_utc_offset_hours()
@@ -339,6 +377,7 @@ class RadarScreen(MDScreen):
         self.image_widget.set_radar_tile_size_km(
             core.tile_size_km(self.zoom_level, float(self.lat_input.text))
         )
+        self.image_widget.set_radar_direction(self.direction_slider.value)
         self.image_widget.set_image(image)
 
         # Determine if the frame is in the past or future
@@ -348,6 +387,9 @@ class RadarScreen(MDScreen):
         new_time_str = frame.time_str(utc_offset)
         label_str = f"+{new_time_str}" if frame_time > now else f"-{new_time_str}"
         self.time_label.text = label_str
+
+    def direction_slider_updated(self, *_args):
+        print(f"Direction slider updated: {self.direction_slider.value}")
 
 
 class RaincasterApp(MDApp):
