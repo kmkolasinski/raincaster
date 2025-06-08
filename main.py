@@ -152,7 +152,7 @@ class RadarScreen(MDScreen):
             theme_text_color="Custom",
             text_color=(1, 1, 1, 1),
             size_hint_y=None,
-            height=dp(48),
+            height=dp(32),
         )
 
         self.image_widget = radar_image_widget.RadarImageWidget(height=dp(350), size_hint_y=None)
@@ -182,25 +182,18 @@ class RadarScreen(MDScreen):
             value=0,
             step=1,
             size_hint_y=None,
-            height=dp(48),
+            height=dp(32),
         )
         self.time_slider.bind(value=self.on_slider_value)
 
-        self.direction_slider = slider.MDSlider(
-            slider.MDSliderHandle(),
-            slider.MDSliderValueLabel(),
-            min=0,
-            max=360,
-            value=180,
-            step=5,
+        self.run_rain_forecast_button = md_button.MDButton(
+            md_button.MDButtonText(text="Run Rain Forecast ..."),
+            on_release=self.run_rain_forecast,
+            theme_width="Custom",
             size_hint_y=None,
-            height=dp(32),
-        )
-        self.direction_slider.bind(
-            value=self.update_ui,
-        )
-        self.direction_slider.bind(
-            on_touch_up=self._on_direction_slider_touch_up,
+            height=dp(48),
+            pos_hint={"center_x": 0.5, "center_y": 0.5},
+            radius=[dp(0)],
         )
 
         self.rain_arrive_forcast_label = MDLabel(
@@ -213,18 +206,7 @@ class RadarScreen(MDScreen):
         )
 
         layout.add_widget(self.time_slider)
-        layout.add_widget(
-            MDLabel(
-                text="Pick direction (degrees):",
-                halign="center",
-                size_hint_y=None,
-                height=dp(32),
-                md_bg_color=(0.6, 0.6, 0.8, 0.5),
-                role="small",
-                padding=[dp(8)],
-            ),
-        )
-        layout.add_widget(self.direction_slider)
+        layout.add_widget(self.run_rain_forecast_button)
         layout.add_widget(self.rain_arrive_forcast_label)
         layout.add_widget(MDWidget())
 
@@ -382,7 +364,6 @@ class RadarScreen(MDScreen):
         self.image_widget.set_radar_tile_size_km(
             core.tile_size_km(self.zoom_level, float(self.lat_input.text))
         )
-        self.image_widget.set_radar_direction(self.direction_slider.value)
         self.image_widget.set_image(image)
 
         # Determine if the frame is in the past or future
@@ -398,26 +379,54 @@ class RadarScreen(MDScreen):
         if instance.collide_point(*touch.pos):
             self.direction_slider_updated()
 
-    def direction_slider_updated(self, *_args):
-        print(f"Direction slider updated: {self.direction_slider.value}")
-        arrive_in_min, confidence, num_points = core.estimate_time_to_rain_start(
-            self.frame_past_data, self.direction_slider.value
-        )
-        if arrive_in_min is None:
-            info_str = "No rain prediction available!"
-        elif arrive_in_min < 0:
-            info_str = "Cannot estimate rain start time!"
-        else:
-            confidence = abs(int(confidence * 100))
-            info_str = (
-                f"Estimated rain start in {int(arrive_in_min)} minutes "
-                f"(confidence={confidence}%, num samples={num_points})"
+    @mainthread
+    def run_rain_forecast(self, *_args):
+        arrive_in_min_estimates = []
+        confidences = []
+        num_points_estimates = []
+        valid_angles = []
+
+        frame_data = [(frame, core.normalize_image(image)) for frame, image in self.frame_past_data]
+        required_confidence = 0.93
+        required_num_points = 5
+
+        for angle in range(0, 360, 5):
+            print("Estimating rain start for angle:", angle)
+            arrive_in_min, confidence, num_points = core.estimate_time_to_rain_start(
+                frame_data, angle
             )
-        print(
-            f"Estimated rain start in {arrive_in_min} minutes, "
-            f"confidence: {confidence}, points: {num_points}"
-        )
-        self.rain_arrive_forcast_label.text = info_str
+            if (
+                arrive_in_min is None
+                or arrive_in_min < 0
+                or abs(confidence) < required_confidence
+                or num_points < required_num_points
+            ):
+                continue
+            valid_angles.append(angle)
+            arrive_in_min_estimates.append(arrive_in_min)
+            confidences.append(confidence)
+            num_points_estimates.append(num_points)
+
+        if not arrive_in_min_estimates:
+            info_str = "No rain prediction available!"
+            self.image_widget.set_radar_direction(None)
+            self.rain_arrive_forcast_label.text = info_str
+        else:
+            print("Rain start estimates:", arrive_in_min_estimates)
+            print("Confidence estimates:", confidences)
+            print("Number of points estimates:", num_points_estimates)
+            print("Valid angles:", valid_angles)
+            avg_arrive_in_min = sum(arrive_in_min_estimates) / len(arrive_in_min_estimates)
+            avg_confidence = sum(confidences) / len(confidences)
+            avg_num_points = sum(num_points_estimates) / len(num_points_estimates)
+            confidence = abs(int(avg_confidence * 100))
+            info_str = (
+                f"Estimated rain start in {int(avg_arrive_in_min)} minutes "
+                f"(confidence={confidence}%, num samples={int(avg_num_points)})"
+            )
+            mean_angle = sum(valid_angles) / len(valid_angles)
+            self.image_widget.set_radar_direction(mean_angle)
+            self.rain_arrive_forcast_label.text = info_str
 
 
 class RaincasterApp(MDApp):

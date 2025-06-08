@@ -22,7 +22,7 @@ class RadarImageWidget(MDWidget):
         self.texture = texture
         self.keep_ratio = keep_ratio
         self.radar_tile_size_km = None
-        self.radar_direction = 0.0  # Direction in degrees
+        self.radar_direction = None
         self.bind(
             pos=self.update_canvas,
             size=self.update_canvas,
@@ -43,11 +43,12 @@ class RadarImageWidget(MDWidget):
         """
         self.radar_tile_size_km = size_km
 
-    def set_radar_direction(self, direction: float):
+    def set_radar_direction(self, direction: float | None):
         """
         Set the radar direction in degrees.
         """
         self.radar_direction = direction
+        self.update_canvas()
 
     def get_km_circle_radius(self, radius_km: float) -> float:
         """
@@ -118,6 +119,8 @@ class RadarImageWidget(MDWidget):
                 line_length = min(self.width, self.height) / 2
                 end_x = self.center_x + line_length * math.cos(angle_rad)
                 end_y = self.center_y - line_length * math.sin(angle_rad)
+                # Use a nice, visible color for the radar direction line (e.g., bright orange)
+                Color(1.0, 0.5, 0.0, 1.0)
                 Line(
                     points=[self.center_x, self.center_y, end_x, end_y],
                     width=2,

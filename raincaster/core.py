@@ -195,54 +195,45 @@ def fetch_radar_map_raw(
 
 def cross_section(
     image, angle: float, channel: int = 0
-) -> tuple[list[tuple[int, int]], list[float], list[float]]:
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """
-    Sample pixels along a line at the given angle (in degrees) through the center of the image.
-    Does not use interpolation, just nearest-pixel sampling.
-
-    Args:
-        image: np.ndarray (H, W, C) or (H, W)
-        angle: float (degrees)
-        channel: int, for color images
-
-    Returns:
-        coords: list of (y, x) tuples representing pixel coordinates along the cross-section
-        values: list of pixel values at those coordinates
-        distances: list of distances from the center of the image to each coordinate
-
+    Vectorised version of the original `cross_section` function.
+    See original doc-string for detailed description.
     """
     img = np.asarray(image)
     if img.ndim == 3:  # noqa: PLR2004
         img = img[..., channel]
+
     height, width = img.shape
-    cy, cx = height / 2, width / 2  # Image center
+    cy, cx = height / 2.0, width / 2.0  # image centre in (y, x) order
 
-    angle = np.deg2rad(angle)
-    dx = np.cos(angle)
-    dy = np.sin(angle)
+    # Direction vector for the requested angle (degrees → radians first)
+    theta = np.deg2rad(angle)
+    dx, dy = np.cos(theta), np.sin(theta)
 
-    # Maximum number of steps in either direction from the center
-    max_dist = int(np.ceil(np.sqrt(height**2 + width**2) / 2))
+    # Maximum #steps needed to leave the image in the worst case
+    max_dist = int(np.ceil(np.hypot(height, width) / 2.0))
 
-    coords: list[tuple[int, int]] = []
+    # All steps [0, 1, 2, …, max_dist-1]  (non-negative branch, same as original)
+    n = np.arange(max_dist, dtype=float)
 
-    for n in range(max_dist):
-        x = cx + n * dx
-        y = cy + n * dy
-        ix, iy = int(round(x)), int(round(y))
-        if 0 <= ix < width and 0 <= iy < height:
-            coords.append((iy, ix))
-        else:
-            break
+    # Floating-point positions along the line through the centre
+    x = cx + n * dx
+    y = cy + n * dy
 
-    def _distance(pt: tuple[int, int]) -> float:
-        """Calculate distance from the center."""
-        return math.sqrt((pt[0] - cy) ** 2 + (pt[1] - cx) ** 2)
+    # Round to nearest integer pixel indices
+    ix = np.rint(x).astype(int)
+    iy = np.rint(y).astype(int)
 
-    coords = sorted(coords, key=lambda pt: _distance(pt))
-    values = np.array([float(img[pt[0], pt[1]]) for pt in coords])
-    distances = [_distance(pt) for pt in coords]
-    return coords, values, distances
+    # Keep only points that fall inside the image
+    inside = (ix >= 0) & (ix < width) & (iy >= 0) & (iy < height)
+    ix, iy = ix[inside], iy[inside]
+
+    # Pixel coordinates, pixel values and Euclidean distances
+    coords_arr = np.stack((iy, ix), axis=1)  # shape (N, 2)
+    values = img[iy, ix].astype(float)  # shape (N,)
+    distances = np.hypot(iy - cy, ix - cx)  # shape (N,)
+    return coords_arr, values, distances
 
 
 def cluster_cross_section_rain_regions(
@@ -292,18 +283,21 @@ def find_first_above_threshold(cross: np.ndarray, threshold: float = 0.5) -> int
     return -1
 
 
+def normalize_image(image: Image.Image) -> np.ndarray:
+    image_np = np.array(image)
+    alpha = image_np[..., 3] / 255.0
+    image_np = image_np[..., :3].mean(axis=-1) * alpha
+    image_np /= image_np.max()
+    return image_np
+
+
 def estimate_time_to_rain_start(
-    frame_data: list[tuple[RadarFrame, Image.Image]], direction_angle: float
-):
+    frame_data: list[tuple[RadarFrame, np.ndarray]], direction_angle: float
+) -> tuple[float, float, int]:
     signal_data = []
 
     for frame, image in frame_data:
-        image_np = np.array(image)
-        alpha = image_np[..., 3] / 255.0
-        image_np = image_np[..., :3].mean(axis=-1) * alpha
-        image_np /= image_np.max()
-
-        coords, cross, distances = cross_section(image_np, direction_angle)
+        coords, cross, distances = cross_section(image, direction_angle)
         signal_data.append((frame.time, coords, cross, distances))
 
     clusters = []
